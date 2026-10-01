@@ -13,6 +13,7 @@ import (
 	"github.com/wyw14/cry-97/internal/alarm"
 	"github.com/wyw14/cry-97/internal/discharge"
 	"github.com/wyw14/cry-97/internal/dosing"
+	"github.com/wyw14/cry-97/internal/escalation"
 	"github.com/wyw14/cry-97/internal/intake"
 	"github.com/wyw14/cry-97/internal/interlock"
 	"github.com/wyw14/cry-97/internal/journal"
@@ -39,6 +40,7 @@ type Plant struct {
 	permits       *discharge.PermitBook
 	valves        *discharge.ValveController
 	alarms        *alarm.Service
+	escalations   *escalation.Router
 	settling      map[model.LineID]*settling.State
 	cycles        *settling.CycleBook
 	interlocks    *interlock.Arbiter
@@ -140,12 +142,21 @@ func NewPlant(dataDir string, lines []model.LineID, now func() time.Time) (*Plan
 		return nil, err
 	}
 	sampler := sensor.NewSampler()
+	alarmService := alarm.NewService()
+	escalationRouter, err := escalation.NewRouter(
+		escalation.DefaultRoster(lines), escalation.DefaultPolicy(),
+		[]escalation.Channel{escalation.NewLogChannel()}, now)
+	if err != nil {
+		return nil, err
+	}
+	alarmService.Subscribe(escalationRouter)
 	plant := &Plant{
 		now: now, lines: make(map[model.LineID]model.LineState), batches: make(map[uuid.UUID]model.Batch),
 		lineBatches: make(map[model.LineID]uuid.UUID), store: store, snapshots: snapshots,
 		intake: intakeController, equalizers: pool, aeration: aerationController, dosing: dosingService,
-		labResults: lab.NewResults(), permits: permits, valves: valves, alarms: alarm.NewService(),
-		settling: make(map[model.LineID]*settling.State), cycles: settling.NewCycleBook(),
+		labResults: lab.NewResults(), permits: permits, valves: valves, alarms: alarmService,
+		escalations: escalationRouter,
+		settling:    make(map[model.LineID]*settling.State), cycles: settling.NewCycleBook(),
 		interlocks: arbiter, drains: drains, pumps: pumps, handovers: sludge.NewHandoverBook(),
 		sequences: sequences, compensations: queue, devices: devices, sampler: sampler, receiver: receiver,
 	}

@@ -2,9 +2,72 @@
 <html lang="zh-CN">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BioTreat 异常处置</title><link rel="stylesheet" href="/assets/app.css"></head>
 <body><header><div class="brand">BioTreat 工艺联控</div><nav><a href="/process">工艺总控</a><a href="/aeration">曝气调节</a><a href="/sludge">污泥回流</a><a aria-current="page" href="/alarms">异常处置</a></nav></header>
-<main><div class="page-head"><div><h1>工艺告警</h1><div class="muted">当前异常、确认状态和处理线隔离信息</div></div><div class="status"><span class="dot"></span><span id="health">checking</span></div></div>
-<div class="grid"><section class="panel wide"><h2>告警队列</h2><table><thead><tr><th>级别</th><th>处理线</th><th>内容</th><th>状态</th><th></th></tr></thead><tbody id="alarms"></tbody></table></section><section class="panel"><h2>污泥界面采样</h2><form id="blanket"><label>处理线<select name="line"><option>line-1</option><option>line-2</option><option>line-3</option></select></label><label>界面高度 m<input name="level" type="number" step="0.1" value="3.1"></label><button>更新沉降状态</button></form></section><section class="panel wide"><h2>处置结果</h2><pre id="output">等待处置</pre></section></div></main>
-<script src="/assets/common.js"></script><script>
-async function load(){const d=await request('/api/alarms');document.querySelector('#alarms').innerHTML=d.alarms.map(a=>`<tr><td>${a.severity}</td><td>${a.line_id}</td><td>${a.message}</td><td>${a.acknowledged?'已确认':'待确认'}</td><td><button data-id="${a.id}">确认</button></td></tr>`).join('');document.querySelectorAll('[data-id]').forEach(b=>b.onclick=async()=>{try{show(await request(`/api/alarms/${b.dataset.id}/ack`,{method:'POST',body:'{}'}));load()}catch(err){showError(err)}})}
-document.querySelector('#blanket').addEventListener('submit',async e=>{e.preventDefault();const f=new FormData(e.target);try{show(await request(`/api/settling/${f.get('line')}/blanket`,{method:'POST',body:JSON.stringify({level:Number(f.get('level'))})}));load()}catch(err){showError(err)}});load().catch(showError);
+<main><div class="page-head"><div><h1>工艺告警</h1><div class="muted">报警分级升级路由：严重度 × 处理线值班链 × 未确认持续时间</div></div><div class="status"><span class="dot"></span><span id="health">checking</span></div></div>
+<div class="grid"><section class="panel wide"><h2>告警队列</h2><table><thead><tr><th>级别</th><th>处理线</th><th>内容</th><th>确认状态</th><th>升级状态</th><th></th></tr></thead><tbody id="alarms"></tbody></table></section><section class="panel"><h2>污泥界面采样</h2><form id="blanket"><label>处理线<select name="line"><option>line-1</option><option>line-2</option><option>line-3</option></select></label><label>界面高度 m<input name="level" type="number" step="0.1" value="3.1"></label><button>更新沉降状态</button></form></section><section class="panel wide"><h2>分级升级路由</h2><table><thead><tr><th>级别/代码</th><th>处理线</th><th>路由状态</th><th>当前值班层</th><th>下次升级</th><th>投递</th><th></th></tr></thead><tbody id="escalations"></tbody></table></section><section class="panel wide"><h2>升级时间线</h2><div class="muted">点击某条报警的“时间线”查看触发依据与投递状态</div><pre id="output">等待处置</pre></section></div></main>
+<script src="/assets/common.js"></script>
+<script>
+const stateLabel = { firing: "升级中", acknowledged: "已确认·冻结", recovered: "已恢复·终止" };
+const deliveryLabel = { pending: "待投递", sent: "已送达", failed: "投递失败", skipped: "已取消" };
+
+function fmtTime(value) { return value ? new Date(value).toLocaleString("zh-CN", { hour12: false }) : "—"; }
+
+async function loadAlarms() {
+  const d = await request("/api/alarms");
+  document.querySelector("#alarms").innerHTML = d.alarms.map(a => {
+    const recovered = a.recovered_at ? "已恢复" : (a.acknowledged ? "已确认" : "待确认");
+    return `<tr><td>${a.severity}</td><td>${a.line_id}</td><td>${a.message}</td><td>${recovered}</td>
+    <td id="ack-${a.id}">—</td>
+    <td><button data-ack="${a.id}" ${a.acknowledged || a.recovered_at ? "disabled" : ""}>确认</button>
+    <button data-timeline="${a.id}">时间线</button></td></tr>`;
+  }).join("");
+  document.querySelectorAll("[data-ack]").forEach(b => b.onclick = async () => {
+    try { show(await request(`/api/alarms/${b.dataset.ack}/ack`, { method: "POST", body: "{}" })); await load(); }
+    catch (err) { showError(err); }
+  });
+  document.querySelectorAll("[data-timeline]").forEach(b => b.onclick = () => loadTimeline(b.dataset.timeline).catch(showError));
+}
+
+async function loadEscalations() {
+  const d = await request("/api/escalations");
+  document.querySelector("#escalations").innerHTML = d.escalations.map(e => {
+    const sent = e.notifications.filter(n => n.status === "sent").length;
+    const failed = e.notifications.filter(n => n.status === "failed").length;
+    const delivery = failed > 0 ? `${sent} 送达 / ${failed} 失败` : `${sent} 送达`;
+    const tier = e.current_tier ? `T${e.current_tier} ${e.current_tier_label || ""}` : "—";
+    const next = e.state === "firing" ? fmtTime(e.next_escalation_at) : "—";
+    const ackCell = document.querySelector(`#ack-${e.alarm_id}`);
+    if (ackCell) ackCell.textContent = stateLabel[e.state] || e.state;
+    return `<tr><td>${e.severity}<br><span class="muted">${e.code}</span></td><td>${e.line_id}</td>
+    <td>${stateLabel[e.state] || e.state}</td><td>${tier}</td><td>${next}</td><td>${delivery}</td>
+    <td><button data-timeline="${e.alarm_id}">时间线</button></td></tr>`;
+  }).join("");
+  document.querySelectorAll("#escalations [data-timeline]").forEach(b => b.onclick = () => loadTimeline(b.dataset.timeline).catch(showError));
+}
+
+async function loadTimeline(id) {
+  const d = await request(`/api/alarms/${id}/timeline`);
+  const lines = d.timeline.map(ev => {
+    const tier = ev.tier ? ` T${ev.tier}` : "";
+    const basis = ev.reason || ev.detail || "";
+    const delivery = ev.notification ? `  [${deliveryLabel[ev.notification.status] || ev.notification.status}${ev.notification.attempts > 1 ? " 第" + ev.notification.attempts + "次尝试" : ""} → ${ev.notification.contact.name}/${ev.notification.contact.channel}]` : "";
+    return `${fmtTime(ev.at)}  ${ev.kind}${tier}  ${basis}${delivery}`;
+  });
+  show({ alarm_id: d.alarm_id, timeline: lines });
+}
+
+async function load() { await Promise.all([loadAlarms(), loadEscalations()]); }
+
+document.querySelector("#blanket").addEventListener("submit", async e => {
+  e.preventDefault();
+  const f = new FormData(e.target);
+  try {
+    show(await request(`/api/settling/${f.get("line")}/blanket`, {
+      method: "POST", body: JSON.stringify({ level: Number(f.get("level")) }),
+    }));
+    load().catch(showError);
+  } catch (err) { showError(err); }
+});
+
+load().catch(showError);
+setInterval(() => load().catch(() => {}), 5000);
 </script></body></html>

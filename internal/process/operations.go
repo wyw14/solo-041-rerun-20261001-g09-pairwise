@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/wyw14/cry-97/internal/aeration"
 	"github.com/wyw14/cry-97/internal/dosing"
+	"github.com/wyw14/cry-97/internal/escalation"
 	"github.com/wyw14/cry-97/internal/model"
 	"github.com/wyw14/cry-97/internal/settling"
 )
@@ -82,6 +83,22 @@ func (p *Plant) AcknowledgeAlarm(id uuid.UUID) (model.Alarm, error) {
 
 func (p *Plant) RecoverAlarm(id uuid.UUID) (model.Alarm, error) {
 	return p.alarms.Recover(id, p.now())
+}
+
+// Escalations lists the current escalation chain of every alarm.
+func (p *Plant) Escalations() []escalation.Summary {
+	return p.escalations.Escalations()
+}
+
+// AlarmTimeline returns the ordered escalation timeline of one alarm.
+func (p *Plant) AlarmTimeline(id uuid.UUID) ([]escalation.Event, error) {
+	return p.escalations.Timeline(id)
+}
+
+// PumpEscalations performs due notifications and tier moves. It is meant to
+// be driven once per second by the maintenance loop.
+func (p *Plant) PumpEscalations(ctx context.Context) error {
+	return p.escalations.Tick(ctx)
 }
 
 func (p *Plant) Clock() time.Time {
