@@ -18,6 +18,7 @@ import (
 	"github.com/wyw14/cry-97/internal/journal"
 	"github.com/wyw14/cry-97/internal/lab"
 	"github.com/wyw14/cry-97/internal/model"
+	"github.com/wyw14/cry-97/internal/notify"
 	"github.com/wyw14/cry-97/internal/sensor"
 	"github.com/wyw14/cry-97/internal/settling"
 	"github.com/wyw14/cry-97/internal/sludge"
@@ -39,6 +40,7 @@ type Plant struct {
 	permits       *discharge.PermitBook
 	valves        *discharge.ValveController
 	alarms        *alarm.Service
+	escalations   *notify.Router
 	settling      map[model.LineID]*settling.State
 	cycles        *settling.CycleBook
 	interlocks    *interlock.Arbiter
@@ -149,6 +151,19 @@ func NewPlant(dataDir string, lines []model.LineID, now func() time.Time) (*Plan
 		interlocks: arbiter, drains: drains, pumps: pumps, handovers: sludge.NewHandoverBook(),
 		sequences: sequences, compensations: queue, devices: devices, sampler: sampler, receiver: receiver,
 	}
+	plant.escalations = notify.NewRouter(
+		notify.DefaultRoster(lines), notify.DefaultPolicy(), notify.NewLogNotifier(nil), now,
+	)
+	plant.alarms.Subscribe(func(value model.Alarm) {
+		switch {
+		case !value.Active():
+			plant.escalations.HandleRecovered(value)
+		case value.Acknowledged:
+			plant.escalations.HandleAcknowledged(value)
+		default:
+			plant.escalations.HandleRaised(value)
+		}
+	})
 	for _, lineID := range lines {
 		plant.lines[lineID] = model.NewLineState(lineID, now())
 		listener := alarm.NewBlanketListener(plant.alarms, now)

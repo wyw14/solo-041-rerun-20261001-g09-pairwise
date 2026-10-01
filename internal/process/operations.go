@@ -84,6 +84,21 @@ func (p *Plant) RecoverAlarm(id uuid.UUID) (model.Alarm, error) {
 	return p.alarms.Recover(id, p.now())
 }
 
+// TickEscalations 推进一轮分级升级扫描，把超时未确认的报警通知给下一层值班人员。
+func (p *Plant) TickEscalations(ctx context.Context) []model.EscalationEvent {
+	return p.escalations.Tick(ctx)
+}
+
+// EscalationTimeline 返回单条报警的升级时间线。
+func (p *Plant) EscalationTimeline(id uuid.UUID) (model.EscalationTimeline, error) {
+	return p.escalations.Timeline(id)
+}
+
+// EscalationTimelines 返回全部（或指定处理线）的升级时间线。
+func (p *Plant) EscalationTimelines(lineID model.LineID) []model.EscalationTimeline {
+	return p.escalations.Timelines(lineID)
+}
+
 func (p *Plant) Clock() time.Time {
 	return p.now().UTC()
 }

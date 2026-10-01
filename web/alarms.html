@@ -3,8 +3,23 @@
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BioTreat 异常处置</title><link rel="stylesheet" href="/assets/app.css"></head>
 <body><header><div class="brand">BioTreat 工艺联控</div><nav><a href="/process">工艺总控</a><a href="/aeration">曝气调节</a><a href="/sludge">污泥回流</a><a aria-current="page" href="/alarms">异常处置</a></nav></header>
 <main><div class="page-head"><div><h1>工艺告警</h1><div class="muted">当前异常、确认状态和处理线隔离信息</div></div><div class="status"><span class="dot"></span><span id="health">checking</span></div></div>
-<div class="grid"><section class="panel wide"><h2>告警队列</h2><table><thead><tr><th>级别</th><th>处理线</th><th>内容</th><th>状态</th><th></th></tr></thead><tbody id="alarms"></tbody></table></section><section class="panel"><h2>污泥界面采样</h2><form id="blanket"><label>处理线<select name="line"><option>line-1</option><option>line-2</option><option>line-3</option></select></label><label>界面高度 m<input name="level" type="number" step="0.1" value="3.1"></label><button>更新沉降状态</button></form></section><section class="panel wide"><h2>处置结果</h2><pre id="output">等待处置</pre></section></div></main>
+<div class="grid"><section class="panel wide"><h2>告警队列</h2><table><thead><tr><th>级别</th><th>处理线</th><th>内容</th><th>状态</th><th></th></tr></thead><tbody id="alarms"></tbody></table></section><section class="panel"><h2>污泥界面采样</h2><form id="blanket"><label>处理线<select name="line"><option>line-1</option><option>line-2</option><option>line-3</option></select></label><label>界面高度 m<input name="level" type="number" step="0.1" value="3.1"></label><button>更新沉降状态</button></form></section><section class="panel wide"><h2>分级升级时间线</h2><div class="muted">未确认报警按严重度与持续时间逐级升级值班人员；恢复或确认后终止</div><div id="timelines"></div></section><section class="panel wide"><h2>处置结果</h2><pre id="output">等待处置</pre></section></div></main>
 <script src="/assets/common.js"></script><script>
-async function load(){const d=await request('/api/alarms');document.querySelector('#alarms').innerHTML=d.alarms.map(a=>`<tr><td>${a.severity}</td><td>${a.line_id}</td><td>${a.message}</td><td>${a.acknowledged?'已确认':'待确认'}</td><td><button data-id="${a.id}">确认</button></td></tr>`).join('');document.querySelectorAll('[data-id]').forEach(b=>b.onclick=async()=>{try{show(await request(`/api/alarms/${b.dataset.id}/ack`,{method:'POST',body:'{}'}));load()}catch(err){showError(err)}})}
-document.querySelector('#blanket').addEventListener('submit',async e=>{e.preventDefault();const f=new FormData(e.target);try{show(await request(`/api/settling/${f.get('line')}/blanket`,{method:'POST',body:JSON.stringify({level:Number(f.get('level'))})}));load()}catch(err){showError(err)}});load().catch(showError);
+const levelName={operator:'一线值班员',supervisor:'值班主管',manager:'运行经理'};
+const termName={acknowledged:'已确认终止',recovered:'已恢复终止',top_level:'已到最高值班层'};
+function fmt(t){return t?new Date(t).toLocaleString('zh-CN',{hour12:false}):''}
+async function load(){
+  const d=await request('/api/alarms');
+  document.querySelector('#alarms').innerHTML=d.alarms.map(a=>`<tr><td>${a.severity}</td><td>${a.line_id}</td><td>${a.message}</td><td>${a.recovered_at?'已恢复':(a.acknowledged?'已确认':'待确认')}</td><td>${a.recovered_at?'':`<button data-id="${a.id}" data-act="ack">确认</button> <button data-id="${a.id}" data-act="recover">恢复</button>`}</td></tr>`).join('');
+  document.querySelectorAll('[data-act]').forEach(b=>b.onclick=async()=>{try{show(await request(`/api/alarms/${b.dataset.id}/${b.dataset.act}`,{method:'POST',body:'{}'}));load()}catch(err){showError(err)}});
+  const t=await request('/api/escalations');
+  document.querySelector('#timelines').innerHTML=t.timelines.length? t.timelines.map(tl=>{
+    const head=`<h3>${tl.severity} · ${tl.line_id} · 当前层级：${levelName[tl.current_level]||tl.current_level} ${tl.terminated?`<span class="tag">${termName[tl.terminate_reason]||tl.terminate_reason} ${fmt(tl.terminated_at)}</span>`:'<span class="tag active">升级中</span>'}</h3>`;
+    const rows=tl.events.map(e=>`<tr><td>${fmt(e.notified_at)}</td><td>${levelName[e.level]||e.level}</td><td>${e.reason==='raised'?'报警产生':'超时升级'}</td><td>${e.basis.rule}</td><td>${e.recipients.map(c=>`${c.name}(${c.target})`).join('、')||'无值班人员'}</td><td><span class="deliv ${e.status}">${e.status==='sent'?'已送达':(e.status==='failed'?'投递失败':(e.status==='suppressed'?'已抑制':'投递中'))}</span>${e.delivery_error?` <span class="muted">${e.delivery_error}</span>`:''}</td></tr>`).join('');
+    return `${head}<table><thead><tr><th>时间</th><th>层级</th><th>依据</th><th>规则</th><th>通知对象</th><th>投递</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }).join(''):'<div class="muted">暂无升级记录</div>';
+}
+document.querySelector('#blanket').addEventListener('submit',async e=>{e.preventDefault();const f=new FormData(e.target);try{show(await request(`/api/settling/${f.get('line')}/blanket`,{method:'POST',body:JSON.stringify({level:Number(f.get('level'))})}));load()}catch(err){showError(err)}});
+function loop(){load().catch(showError)}
+loop();setInterval(loop,3000);
 </script></body></html>

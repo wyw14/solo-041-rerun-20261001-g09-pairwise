@@ -39,6 +39,13 @@ pre { margin: 0; min-height: 78px; padding: 12px; overflow: auto; border-radius:
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td { padding: 9px 8px; border-bottom: 1px solid #e5eaec; text-align: left; }
 th { color: #53636b; font-weight: 650; }
+.tag { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 10px; font-size: 12px; color: #5a6a72; background: #e6ecee; }
+.tag.active { color: #fff; background: #b06a1d; }
+.deliv { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; }
+.deliv.sent { color: #1c6b46; background: #dff2e8; }
+.deliv.failed { color: #8f322b; background: #f6ddd9; }
+.deliv.pending { color: #7a6a3f; background: #f4eccd; }
+#timelines h3 { margin: 16px 0 6px; font-size: 14px; }
 @media (max-width: 820px) {
   header { height: auto; padding: 14px 18px; align-items: flex-start; flex-direction: column; gap: 10px; }
   nav { flex-wrap: wrap; }

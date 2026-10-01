@@ -64,6 +64,12 @@ func run() error {
 				if _, runErr := plant.RunCompensations(maintenanceContext); runErr != nil && !errors.Is(runErr, context.Canceled) {
 					log.Printf("compensation maintenance: %v", runErr)
 				}
+				if events := plant.TickEscalations(maintenanceContext); len(events) > 0 {
+					for _, event := range events {
+						log.Printf("alarm %s escalated to %s on line %s (%s)",
+							event.AlarmID, event.Level, event.LineID, event.Basis.Rule)
+					}
+				}
 			}
 		}
 	}()
